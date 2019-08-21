@@ -1,57 +1,46 @@
 import csv
+import logging
 import numpy as np
 import h5py as hdf5
 import pylab as plt
-from analysis.namespaces import *
-from sklearn.linear_model import LinearRegression
-import statistics
-import copy
+from sklearn.decomposition import PCA
 
 
-def normalization(data, a=0, b=1, zero_relative=False):
+logging.basicConfig(format='[%(funcName)s]: %(message)s', level=logging.INFO)
+log = logging.getLogger()
+
+
+def normalization(data, a=0, b=1, save_centering=False):
 	"""
-	Normalization in [a, b] interval
+	Normalization in [a, b] interval or with saving centering
 	x` = (b - a) * (xi - min(x)) / (max(x) - min(x)) + a
 	Args:
-		data (list):
-			data for normalization
-		a (float or int):
-			left interval a
-		b (float or int):
-			right interval b
-		zero_relative (bool):
-			if True -- recalculate data where 0 is the first element and -1 is min(EES)
+		data (np.ndarray): data for normalization
+		a (float): left interval
+		b (float): right interval
+		save_centering (bool): if True -- will save data centering and just normalize by lowest data
 	Returns:
-		list: normalized data
+		np.ndarray: normalized data
 	"""
 	# checking on errors
 	if a >= b:
 		raise Exception("Left interval 'a' must be fewer than right interval 'b'")
-
-	if zero_relative:
-		# prepare the constans
-		first = data[0]
+	if save_centering:
 		minimal = abs(min(data))
-
-		return [(volt - first) / minimal for volt in data]
+		return [volt / minimal for volt in data]
 	else:
-		# print("b = ", b)
-		# print("a = ", a)
-		# prepare the constans
 		min_x = min(data)
 		max_x = max(data)
-		# print("min_x = ", min_x)
-		# print("max_x = ", max_x)
 		const = (b - a) / (max_x - min_x)
 
 		return [(x - min_x) * const + a for x in data]
 
 
+<<<<<<< HEAD
 def calc_linear(x, y):
 	model = LinearRegression(fit_intercept=True)
 	model.fit(x[:, np.newaxis], y)
-
-	xfit = np.linspace(0, 25, 2)
+	xfit = np.linspace(0, 25, 10)
 	yfit = model.predict(X=xfit[:, np.newaxis])
 
 	return xfit, yfit
@@ -95,7 +84,6 @@ def calc_max_min(slices_start_time, test_data, remove_micropeaks=False, stim_cor
 			offset = 0
 
 		start = slices_start_time[slice_index - 1]
-		# print("start = ", start)
 		if slice_index == len(slices_start_time):
 			end = len(test_data)
 		else:
@@ -167,7 +155,7 @@ def calc_max_min(slices_start_time, test_data, remove_micropeaks=False, stim_cor
 	return slices_max_time, slices_max_value, slices_min_time, slices_min_value
 
 
-def find_latencies(mins_maxes, step, norm_to_ms=False, reversed_data=False, inhibition_zero=False): # , thresholds
+def find_latencies(mins_maxes, step, norm_to_ms=False, reversed_data=False, inhibition_zero=False, first_kink=False):
 	"""
 	Function for autonomous finding the latencies in slices by bordering and finding minimals
 	Args:
@@ -194,25 +182,19 @@ def find_latencies(mins_maxes, step, norm_to_ms=False, reversed_data=False, inhi
 	# find latencies per slice
 	for slice_index in slice_indexes:
 		additional_border = 0
-		slice_times = mins_maxes[2][slice_index]    # was 2
-		# print("slice_times = ", [s* 0.25 for s in slice_times])
-		# for time in mins_maxes[2][slice_index]:
-		# 	slice_times.append(time)
-		# print("slice_times = ", slice_times)
-		slice_values = mins_maxes[3][slice_index]   # was 3
-		# for value in mins_maxes[3][slice_index]:
-		# 	slice_values.append(value)
-		# print("slice_values = ", slice_values)
-		# slice_times, slice_values = (list(x) for x in zip(*sorted(zip(slice_times, slice_values))))
-		# print("slice_times = ", [s / 4 for s in slice_times])
-		# print("slice_values = ", slice_values)
+		slice_times = mins_maxes[0][slice_index]    # was 2
+		for time in mins_maxes[2][slice_index]:
+			slice_times.append(time)
+		slice_values = mins_maxes[1][slice_index]   # was 3
+		for value in mins_maxes[3][slice_index]:
+			slice_values.append(value)
+		slice_times, slice_values = (list(x) for x in zip(*sorted(zip(slice_times, slice_values))))
 		# while minimal value isn't found -- find with extended borders [left, right]
 
 		while True:
 			if inhibition_zero:
-				left = 0 - additional_border   # 11
-				right = 7 + additional_border
-				# print('inhibition zero')
+				left = 10 - additional_border   # 11
+				right = 25 + additional_border
 			else:
 				# raise Exception
 				if slice_index in slices_index_interval(0, 1): # [0,1]
@@ -220,7 +202,7 @@ def find_latencies(mins_maxes, step, norm_to_ms=False, reversed_data=False, inhi
 						left = 15 - additional_border
 						right = 24 + additional_border
 					else:
-						left = 10 - additional_border
+						left = 12 - additional_border
 						right = 18 + additional_border
 				elif slice_index in slices_index_interval(2, 2): # [2]
 					if reversed_data:
@@ -251,61 +233,37 @@ def find_latencies(mins_maxes, step, norm_to_ms=False, reversed_data=False, inhi
 			if right > 25:
 				right = 25
 
-			# print("left = ", left)
-			# print("right = ", right)
 			found_points = [v for i, v in enumerate(slice_values) if left <= step_to_ms(slice_times[i]) <= right]
-			# print(slice_index, found_points)
-			# print("found_points = ", found_points)
 			# for f in found_points:
-				# print("count = ", count)
-				# print("found_points values = ", slice_values[slice_values.index(f)])
-				# print("found_points times = ", slice_times[slice_values.index(f)] * 0.25)
 				# if slice_values[slice_values.index(f) > thresholds[count]]:
 					# latencies.append(slice_times[slice_values.index(f)])
 
-			# print("---")
 			# save index of the minimal element in founded points
 			if len(found_points):
-				# print("found_points = ", found_points)
-			# 	for f in range(len(found_points)):
+				# for f in range(len(found_points)):
 			# 		if slice_values[slice_values.index(found_points[f])] > thresholds[count]:
-			# 			print("slice_values.index(found_points[{}]) = ".format(f), slice_values.index(found_points[f]))
-			# 			print("slice_times.index(found_points[{}]) = ".format(f), slice_times.index(found_points[f]))
-						# print("thresholds[{}] = ".format(count), thresholds[count])
 						# latencies.append(slice_times[slice_values.index(found_points[f])])
-						# print("latencies = ", latencies)
 						# count += 1
-						# print("count = ", count)
 						# break
 				# else:
 				# 		f += 1
 				# for i in range(len(found_points)):
-					# print("found_points = ", slice_times[slice_values.index(found_points[i])] * 0.25)
 					# if found_points[i] <= found_points[i + 1]:
 						# minimal_val = found_points[i]
-						# print("i = ", i)
 						# print("minimal_val = ", minimal_val)
 						# break
-				minimal_val = min(found_points) if inhibition_zero else max(found_points) # found_points[0]
+				minimal_val = found_points[0] if first_kink else found_points[0] # found_points[0]
 				index_of_minimal = slice_values.index(minimal_val)
-				# print("slice_values[{}] = ".format(index_of_minimal), slice_values[index_of_minimal])
 				latencies.append(slice_times[index_of_minimal])
-				# print("---")
-				# print("slice_times[{}] = ".format(index_of_minimal), slice_times[index_of_minimal] / 4)
-				# print("---")
-
-				# print("---", slice_times[index_of_minimal] *0.25, minimal_val, index_of_minimal)
 				break
 
 			else:
 				additional_border += 1
-				# print("additional_border = ", additional_border)
 			if additional_border > 25:
 				# FixMe
 				latencies.append(-999)
 				break
 				# FixMe raise Exception("Error, out of borders")
-	# print("len(latencies) = ", len(latencies))
 	# checking on errors
 	if len(latencies) != slice_numbers:
 		raise Exception("Latency list length is not equal to number of slices!")
@@ -349,7 +307,7 @@ def find_ees_indexes(stim_indexes, datas, reverse_ees=False):
 	return ees_indexes
 
 
-def calc_amplitudes(datas, latencies):
+def calc_amplitudes(datas, latencies, step, ees_end, after_latencies=False):
 	"""
 	Function for calculating amplitudes
 	Args:
@@ -362,24 +320,134 @@ def calc_amplitudes(datas, latencies):
 	"""
 	amplitudes = []
 	slice_numbers = len(datas[0])
+	dots_per_slice = 0
+	if step == 0.25:
+		dots_per_slice = 100
+	if step == 0.025:
+		dots_per_slice = 1000
+	for l in range(len(latencies)):
+		latencies[l] /= step
+		latencies[l] = int(latencies[l])
+	# print("latencies in ampls= ", latencies)
+	max_times = datas[0]
+	max_values = datas[1]
+	min_times = datas[2]
+	min_values = datas[3]
 
-	for slice_index in range(slice_numbers):
-		mins_v = datas[k_min_val][slice_index]
-		mins_t = datas[k_min_time][slice_index]
+	# print("amp latencies = ", latencies)
+	# print("amp max_times = ", max_times)
+	# print("amp max_values = ", max_values)
+	# print("amp min_times = ", min_times)
+	# print("amp min_values = ", min_values)
+	# print("max_values = (func)", max_values)
+	# print("min_times = ", min_times)
+	max_times_amp = []
+	min_times_amp = []
+	max_values_amp = []
+	min_values_amp = []
 
-		if mins_v:
-			max_amp_in_mins = max([abs(m) for index, m in enumerate(mins_v) if mins_t[index] >= latencies[slice_index]])
-			amplitudes.append(max_amp_in_mins)
-		else:
-			# FixMe
-			# ToDo write a test for checking linear dot concentration impact
-			# (what is better -- remove dot or set data of previous neighbor)
-			amplitudes.append(-999)
+	# print("latencies in amp cycle = ", latencies)
+	for i in range(len(latencies)):
+		max_times_amp_tmp = []
+		for j in range(len(max_times[i])):
+			if max_times[i][j] > latencies[i]:
+				max_times_amp_tmp.append(max_times[i][j])
+		max_times_amp.append(max_times_amp_tmp)
+		min_times_amp_tmp = []
+		for j in range(len(min_times[i])):
+			if min_times[i][j] > latencies[i]:
+				min_times_amp_tmp.append(min_times[i][j])
+		min_times_amp.append(min_times_amp_tmp)
 
-	if len(amplitudes) != slice_numbers:
-		raise Exception("Length of amplitudes must be equal to slice numbers!")
+		max_values_amp.append(max_values[i][len(max_times[i]) - len(max_times_amp[i]):])
+		min_values_amp.append(min_values[i][len(min_times[i]) - len(min_times_amp[i]):])
 
-	return amplitudes
+	# print("amp max_times = ", max_times)
+	# print("amp max_values = ", max_values)
+	# print("amp min_times = ", min_times)
+	# print("amp min_values = ", min_values)
+
+	corrected_max_times_amp = []
+	corrected_max_values_amp = []
+
+	wrong_sl = []
+	wrong_dot = []
+
+	for index_sl, sl in enumerate(max_times_amp):
+		corrected_max_times_amp_tmp = []
+		for index_dot, dot in enumerate(sl):
+			if dot < dots_per_slice:
+				corrected_max_times_amp_tmp.append(dot)
+			else:
+				wrong_sl.append(index_sl)
+				wrong_dot.append(index_dot)
+		corrected_max_times_amp.append(corrected_max_times_amp_tmp)
+
+	corrected_max_values_amp = max_values_amp
+	for i in range(len(wrong_sl) - 1, -1, -1):
+		del corrected_max_values_amp[wrong_sl[i]][wrong_dot[i]]
+
+	corrected_min_times_amp = []
+	corrected_min_values_amp = []
+	wrong_sl = []
+	wrong_dot = []
+
+	for index_sl, sl in enumerate(min_times_amp):
+		corrected_min_times_amp_tmp = []
+		for index_dot, dot in enumerate(sl):
+			if dot < dots_per_slice:
+				corrected_min_times_amp_tmp.append(dot)
+			else:
+				wrong_sl.append(index_sl)
+				wrong_dot.append(index_dot)
+		corrected_min_times_amp.append(corrected_min_times_amp_tmp)
+
+	corrected_min_values_amp = min_values_amp
+	for i in range(len(wrong_sl) - 1, -1, -1):
+		del corrected_min_values_amp[wrong_sl[i]][wrong_dot[i]]
+
+	for sl in range(len(corrected_min_times_amp)):
+		for dot in range(1, len(corrected_min_times_amp[sl])):
+			if corrected_min_times_amp[sl][dot - 1] > corrected_min_times_amp[sl][dot]:
+				corrected_min_times_amp[sl] = corrected_min_times_amp[sl][:dot]
+				corrected_min_values_amp[sl] = corrected_min_values_amp[sl][:dot]
+
+	for sl in range(len(corrected_max_times_amp)):
+		for dot in range(1, len(corrected_max_times_amp[sl])):
+			if corrected_max_times_amp[sl][dot - 1] > corrected_max_times_amp[sl][dot]:
+				corrected_max_times_amp[sl] = corrected_max_times_amp[sl][:dot]
+				corrected_max_values_amp[sl] = corrected_max_values_amp[sl][:dot]
+				break
+
+	peaks_number = []
+	for sl in range(len(corrected_min_values_amp)):
+		peaks_number.append(len(corrected_min_values_amp[sl]) + len(corrected_max_values_amp[sl]))
+	amplitudes = []
+	# print("corrected_min_values_amp = ", corrected_min_values_amp)
+	# print("corrected_max_values_amp = ", corrected_max_values_amp)
+
+	for sl in range(len(corrected_max_values_amp)):
+		# print("sl = ", sl)
+		amplitudes_sl = []
+		amplitudes_sum = 0
+		try:
+			for i in range(len(corrected_max_values_amp[sl]) - 1):
+				# print("i = ", i)
+				amplitudes_sl.append(corrected_max_values_amp[sl][i] - corrected_min_values_amp[sl][i])
+				amplitudes_sl.append(corrected_max_values_amp[sl][i + 1] - corrected_min_values_amp[sl][i])
+		except IndexError:
+			continue
+
+		for amp in amplitudes_sl:
+			amplitudes_sum += amp
+
+		amplitudes.append(amplitudes_sum)
+
+	for l in range(len(latencies)):
+		latencies[l] *= step
+
+	return amplitudes, peaks_number, corrected_max_times_amp, corrected_max_values_amp, corrected_min_times_amp, \
+	       corrected_min_values_amp
 
 
 def debug(voltages, datas, stim_indexes, ees_indexes, latencies, amplitudes, step):
@@ -481,7 +549,8 @@ def debug(voltages, datas, stim_indexes, ees_indexes, latencies, amplitudes, ste
 	plt.close()
 
 
-def __process(voltages, stim_indexes, step, debugging, reversed_data=False, inhibition_zero=True, reverse_ees=False):
+def __process(latencies, voltages, stim_indexes, step, ees_end, debugging, inhibition_zero=True, reverse_ees=False,
+              after_latencies=False, first_kink=False):
 	"""
 	Unified functionality for finding latencies and amplitudes
 	Args:
@@ -498,20 +567,17 @@ def __process(voltages, stim_indexes, step, debugging, reversed_data=False, inhi
 		list: amplitudes -- amplitude per slice
 	"""
 	mins_maxes = calc_max_min(stim_indexes, voltages, find_EES=True)   # check
-	# print("mins_maxes = ", mins_maxes)
 	ees_indexes = find_ees_indexes(stim_indexes, mins_maxes, reverse_ees=reverse_ees)
-	# norm_voltages = normalization(voltages, zero_relative=True)
-	# mins_maxes = calc_max_min(ees_indexes, voltages, stim_corr=stim_indexes)
-	# print("mins_maxes = ", mins_maxes)
-	latencies = find_latencies(mins_maxes, step, norm_to_ms=True, reversed_data=reversed_data,
-	                           inhibition_zero=inhibition_zero) # , thresholds
-	# print("latencies in cycle= ", latencies)
-	amplitudes = calc_amplitudes(mins_maxes, latencies)
+	norm_voltages = normalization(voltages, zero_relative=True)
+	mins_maxes = calc_max_min(ees_indexes, voltages, stim_corr=stim_indexes)
+	# latencies = find_latencies(mins_maxes, step, norm_to_ms=True, reversed_data=reversed_data,
+	#                            inhibition_zero=inhibition_zero, first_kink=first_kink) # , thresholds
+	amplitudes, peaks_number, max_times, min_times, max_values, min_values = \
+		calc_amplitudes(mins_maxes, latencies, step, ees_end, after_latencies)
 
-	if debugging:
-		debug(voltages, mins_maxes, stim_indexes, ees_indexes, latencies, amplitudes, step)
-
-	return latencies, amplitudes
+	# if debugging:
+	# 	debug(voltages, mins_maxes, stim_indexes, ees_indexes, latencies, amplitudes, step)
+	return amplitudes, peaks_number, max_times, min_times, max_values, min_values
 
 
 def bio_process(voltages_and_stim, slice_numbers, debugging=False, reversed_data=False, reverse_ees=False):
@@ -542,10 +608,7 @@ def bio_process(voltages_and_stim, slice_numbers, debugging=False, reversed_data
 		offset += 100
 	for v in volts_by_stims:
 		thresholds.append(0.137 * max(v))
-	# print("thresholds = ", thresholds)
-		# print("volts_by_stims = ", v)
 	stim_indexes = stim_indexes[:-1]
-	# print("stim_indexes = ", stim_indexes)
 	# calculate the latencies and amplitudes
 	bio_lat, bio_amp = __process(voltages, stim_indexes, bio_step, debugging, reversed_data=reversed_data,
 	                             reverse_ees=reverse_ees)
@@ -553,7 +616,8 @@ def bio_process(voltages_and_stim, slice_numbers, debugging=False, reversed_data
 	return bio_lat, bio_amp
 
 
-def sim_process(voltages, step, debugging=False, inhibition_zero=False):
+def sim_process(latencies, voltages, step, ees_end, debugging=False, inhibition_zero=False, after_latencies=False,
+                first_kink=False):
 	"""
 	Find latencies in EES mono-answer borders and amplitudes relative from zero
 	Args:
@@ -567,93 +631,30 @@ def sim_process(voltages, step, debugging=False, inhibition_zero=False):
 	# form EES stimulations indexes (in simulators begin from 0)
 	stim_indexes = list(range(0, len(voltages), int(25 / step)))
 	# calculate the latencies and amplitudes
-	sim_lat, sim_amp = __process(voltages, stim_indexes, step, debugging, inhibition_zero=inhibition_zero)
+	amplitudes, peaks_number, max_times, min_times, max_values, min_values = \
+		__process(latencies, voltages, stim_indexes, step, ees_end, debugging, inhibition_zero=inhibition_zero,
+		          after_latencies=after_latencies, first_kink=first_kink)
 	# change the step
-
-	return sim_lat, sim_amp
+	return latencies, amplitudes, peaks_number, max_times, min_times, max_values, min_values
 
 
 def find_mins(data_array): # matching_criteria was None
+=======
+def read_data(filepath):
+>>>>>>> origin/master
 	"""
-	Function for finding the minimal extrema in the data
+	ToDo add info
 	Args:
-		data_array (list):
-			data what is needed to find mins in
-		matching_criteria (int or float or None):
-			number less than which min peak should be to be considered as the start of a new slice
+		filepath:
+
 	Returns:
-		tuple: min_elems -- values of the starts of new slice
-		       indexes -- indexes of the starts of new slice
+
 	"""
-	indexes = []
-	min_elems = []
-
-	# FixMe taken from the old function find_mins_without_criteria. Why -0.5 (?)
-	ms_pause = 0
-	data_array = [abs(d) for d in data_array]
-
-	for index_elem in range(1, len(data_array) - 1):
-		if (data_array[index_elem - 1] < data_array[index_elem] >= data_array[index_elem + 1]) \
-				and ms_pause <= 0 \
-				and data_array[index_elem] >= 0.2:
-			min_elems.append(data_array[index_elem])
-			indexes.append(index_elem)
-			ms_pause = int(3 / bio_step)
-		ms_pause -= 1
-
-	return min_elems, indexes
-
-
-def read_neuron_data(path):
-	"""
-	Reading hdf5 data for Neuron simulator
-	Args:
-		path (str):
-			path to the file
-	Returns:
-		list: data from the file
-	"""
-	with hdf5.File(path) as file:
-		neuron_means = [data[:] for data in file.values()]
-
-	return neuron_means
-
-
-def read_nest_data(path):
-	"""
-	FixMe merge with read_neuron_data (!),
-	 For Alex: use a negative voltage data writing (like as extracellular)
-	Reading hdf5 data for NEST simulator
-	Args:
-		path (str):
-			path to the file
-	Returns:
-		list: data from the file
-	"""
-	nest_data = []
-	with hdf5.File(path) as file:
-		for test_data in file.values():
-			first = -test_data[0]
-			# transforming to extracellular form
-			nest_data.append([-d - first for d in test_data[:]])
-
-	return nest_data
-
-
-def read_bio_hdf5(path):
-	voltages = []
-	stimulations = []
-
-	with hdf5.File(path) as file:
-		for title, values in file.items():
-			if 'Stim' == title:
-				stimulations = list(values[:])
-			elif 'RMG' == title:
-				voltages = list(values[:])
-			else:
-				raise Exception("Out of the itles border")
-
-	return voltages, stimulations
+	with hdf5.File(filepath, 'r') as file:
+		data_by_test = [test_values[:] for test_values in file.values()]
+		if not all(map(len, data_by_test)):
+			raise Exception("hdf5 has an empty data!")
+	return data_by_test
 
 
 def read_bio_data(path):
@@ -668,8 +669,6 @@ def read_bio_data(path):
 			readed data from the first till the last stimulation,
 		shifted_indexes: list
 			stimulations from the zero
-
-
 	"""
 	with open(path) as file:
 		# skipping headers of the file
@@ -692,115 +691,502 @@ def read_bio_data(path):
 	return data_RMG, shifted_indexes
 
 
-def convert_bio_to_hdf5(voltages, stimulations, filename, path=None):
-	with hdf5.File('{}{}.hdf5'.format(path + "/" if path else "", filename), 'w') as file:
-		file.create_dataset('Stim', data=stimulations, compression="gzip")
-		file.create_dataset('RMG', data=voltages, compression="gzip")
-
-
-def find_fliers(amplitudes_all_runs, latencies_all_runs):
+def extract_data(path, beg=None, end=None, step_from=None, step_to=None):
 	"""
-	Function for finding the fliers of data
+	ToDo add info
 	Args:
-		amplitudes_all_runs: list of lists
-			amplitudes in all runs
-		latencies_all_runs: list of lists
-			latencies in all runs
+		path:
+		beg:
+		end:
+		step_from:
+		step_to:
+
 	Returns:
-		 latencies_all_runs: list of lists
-		    latencies of all runs without fliers
-		 amplitudes_all_runs: list of lists
-		    amplitudes of all runs without fliers
-		 fliers: list of lists
-		    indexes of fliers that were deleted from the upper lists
-		 fliers_latencies_values: list of lists
-		    values of fliers in list of the latencies
-		 fliers_amplitudes_values: list of lists
-		    values of fliers in list of the amplitudes
+		np.ndarray: sliced data
 	"""
-	# calculating the expected value and std in the list
-	expected_value_amp = []
-	std_amp = []
+	#
+	if beg is None:
+		beg = 0
+	if end is None:
+		end = int(10e6)
+	# to convert
+	if step_from == step_to or not step_from or not step_to:
+		shrink_step = 1
+	else:
+		shrink_step = int(step_to / step_from)
 
-	for dot in amplitudes_all_runs:
-		expected_value_tmp = statistics.mean(dot)
-		std_tmp = statistics.stdev(dot)
-		expected_value_amp.append(expected_value_tmp)
-		std_amp.append(std_tmp)
+	# slice data and shrink if need
+	sliced_data = [data[beg:end][::shrink_step] for data in read_data(path)]
+	# check if all lengths are equal
+	if len(set(map(len, sliced_data))) <= 1:
+		return np.array(sliced_data)
+	raise Exception("Length of slices not equal!")
 
-	expected_value_lat = []
-	std_lat = []
 
-	for dot in latencies_all_runs:
-		expected_value_tmp = statistics.mean(dot)
-		std_tmp = statistics.stdev(dot)
-		expected_value_lat.append(expected_value_tmp)
-		std_lat.append(std_tmp)
+def draw_vector(p0, p1, color):
+	"""
+	Small function for drawing vector with arrow by two points
+	Args:
+		p0 (np.ndarray): begin of the vector
+		p1 (np.ndarray): end of the vector
+		color (str): the color of vector
+	"""
+	ax = plt.gca()
+	# this plot is fixing the problem of hiding annotations because of their not markers origin
+	ax.plot(p1[0], p1[1], '.', alpha=0)
+	ax.annotate('', p1, p0, arrowprops=dict(facecolor=color, linewidth=1.0))
 
-	# checking if the value is in the 3-sigma interval
-	amplitudes_all_runs_3sigma = []
-	latencies_all_runs_3sigma = []
 
-	# finding the fliers (values which are outside the 3-sigma interval)
-	fliers_amplitudes = []
-	fliers_amplitudes_values = []
-	fliers_latencies = []
-	fliers_latencies_values = []
-	for dot in range(len(amplitudes_all_runs)):
-		amplitudes_all_runs_dot_3sigma_amp = []
-		fliers_amplitudes_tmp = []
-		for i in range(len(amplitudes_all_runs[dot])):
-			if (expected_value_amp[dot] - 3 * std_amp[dot]) < amplitudes_all_runs[dot][i] < \
-					(expected_value_amp[dot] + 3 * std_amp[dot]):
-				amplitudes_all_runs_dot_3sigma_amp.append(amplitudes_all_runs[dot][i])
-			else:
-				fliers_amplitudes_tmp.append(i)
-		fliers_amplitudes.append(fliers_amplitudes_tmp)
-		amplitudes_all_runs_3sigma.append(amplitudes_all_runs_dot_3sigma_amp)
+def center_data_by_line(y_points, debugging=False):
+	"""
+	Straight the data and center the rotated points cloud at (0, 0)
+	Args:
+		y_points (list or np.ndarray): list of Y points value
+		debugging (bool): True -- will print debugging info and plot figures
+	Returns:
+		np.ndarray: new straighten Y data
+	"""
+	X = 0
+	Y = 1
+	# prepare original data (convert to 2D ndarray)
+	dots_2D = np.stack((range(len(y_points)), y_points), axis=1)
+	# calc PCA for dots cloud
+	pca = PCA(n_components=2)
+	pca.fit(dots_2D)
+	# get PCA components for finding an rotation angle
+	cos_theta = pca.components_[0, 0]
+	sin_theta = pca.components_[0, 1]
+	# one possible value of Theta that lies in [0, pi]
+	arccos = np.arccos(cos_theta)
 
-	for dot in range(len(latencies_all_runs)):
-		latencies_all_runs_dot_3sigma = []
-		fliers_latencies_tmp = []
-		for i in range(len(latencies_all_runs[dot])):
-			if (expected_value_lat[dot] - 3 * std_lat[dot]) < latencies_all_runs[dot][i] < \
-					(expected_value_lat[dot] + 3 * std_lat[dot]):
-				latencies_all_runs_dot_3sigma.append(latencies_all_runs[dot][i])
-			else:
-				fliers_latencies_tmp.append(i)
-		fliers_latencies.append(fliers_latencies_tmp)
-		latencies_all_runs_3sigma.append(latencies_all_runs_dot_3sigma)
+	# if arccos is in Q1 (quadrant), rotate CLOCKwise by arccos
+	if cos_theta > 0 and sin_theta > 0:
+		arccos *= -1
+	# elif arccos is in Q2, rotate COUNTERclockwise by the complement of theta
+	elif cos_theta < 0 and sin_theta > 0:
+		arccos = np.pi - arccos
+	# elif arccos is in Q3, rotate CLOCKwise by the complement of theta
+	elif cos_theta < 0 and sin_theta < 0:
+		arccos = -(np.pi - arccos)
+	# if arccos is in Q4, rotate COUNTERclockwise by theta, i.e. do nothing
+	elif cos_theta > 0 and sin_theta < 0:
+		pass
 
-	# gathering the indexes of amplitudes' and latencies' fliers into one list
-	fliers = fliers_amplitudes
-	for sl in range(len(fliers)):
-		for i in fliers_latencies[sl]:
-			if i:
-				if i not in fliers[sl]:
-					fliers[sl].append(i)
-		# sorting the lists in the ascending order
-		fliers[sl] = sorted(fliers[sl])
+	# manually build the counter-clockwise rotation matrix
+	rotation_matrix = np.array([[np.cos(arccos), -np.sin(arccos)],
+	                            [np.sin(arccos), np.cos(arccos)]])
+	# apply rotation to each row of 'array_dots' (@ is a matrix multiplication)
+	rotated_dots_2D = (rotation_matrix @ dots_2D.T).T
+	# center the rotated point cloud at (0, 0)
+	rotated_dots_2D -= rotated_dots_2D.mean(axis=0)
 
-	# saving the old lists of latencies and amplitudes
-	old_latencies_all_runs = copy.deepcopy(latencies_all_runs)
-	old_amplitudes_all_runs = copy.deepcopy(amplitudes_all_runs)
+	# plot debugging figures
+	if debugging:
+		plt.figure(figsize=(16, 9))
+		plt.suptitle("PCA")
+		# plot all dots and connect them
+		plt.scatter(dots_2D[:, X], dots_2D[:, Y], alpha=0.2)
+		plt.plot(dots_2D[:, X], dots_2D[:, Y])
+		# plot vectors
+		for v_length, vector in zip(pca.explained_variance_, pca.components_):
+			v = vector * 3 * np.sqrt(v_length)
+			draw_vector(pca.mean_, pca.mean_ + v)
+		# figure properties
+		plt.tight_layout()
+		plt.show()
+		plt.close()
 
-	# finding the values of the fliers
-	for dot in range(len(fliers)):
-		fliers_latencies_values_tmp = []
-		for i in fliers[dot]:
-			fliers_latencies_values_tmp.append(old_latencies_all_runs[dot][i])
-		fliers_latencies_values.append(fliers_latencies_values_tmp)
-	for dot in range(len(fliers)):
-		fliers_amplitudes_values_tmp = []
-		for i in fliers[dot]:
-			fliers_amplitudes_values_tmp.append(old_amplitudes_all_runs[dot][i])
-		fliers_amplitudes_values.append(fliers_amplitudes_values_tmp)
+		plt.figure(figsize=(16, 9))
+		plt.suptitle("Centered data")
+		# plot ogignal data on centered
+		plt.plot(range(len(dots_2D)), dots_2D[:, Y], label='original')
+		plt.plot(range(len(rotated_dots_2D)), rotated_dots_2D[:, Y], label='centered')
+		plt.axhline(y=0, color='g', linestyle='--')
+		# figure properties
+		plt.tight_layout()
+		plt.legend()
+		plt.show()
 
-	# deleting the fliers in the latencies and amplitudes lists by the found indexes
-	for sl in range(len(fliers)):
-		for fl in reversed(fliers[sl]):
-			if fl:
-				del latencies_all_runs[sl][fl]
-				del amplitudes_all_runs[sl][fl]
+	return rotated_dots_2D[:, 1]
 
-	return latencies_all_runs, amplitudes_all_runs, fliers, fliers_latencies_values, fliers_amplitudes_values
+
+def prepare_data(dataset):
+	"""
+	Center the data set, then normalize it and return
+	Args:
+		dataset (np.ndarray): original dataset
+	Returns:
+		np.ndarray: prepared dataset per test
+	"""
+	prepared_data = []
+	for data_per_test in dataset:
+		centered_data = center_data_by_line(data_per_test)
+		normalized_data = normalization(centered_data, save_centering=True)
+		prepared_data.append(normalized_data)
+	return prepared_data
+
+
+def auto_prepare_data(folder, filename, step_size_to=None):
+	"""
+	ToDo add info
+	Args:
+		folder (str):
+		filename (str):
+		step_size_to (float):
+	Returns:
+		np.ndarray: prepared data for analysis
+		int: EES frequency in Hz
+	"""
+	log.info(f"prepare {filename}")
+
+	# map of cms <-> number of slices
+	e_slices_number = {'6': 30, '15': 12, '13.5': 12, '21': 6}
+
+	# extract common meta info from the filename
+	ees_hz = int(filename[:filename.find('Hz')].split('_')[-1])
+	if ees_hz not in [5] + list(range(10, 101, 10)):
+		raise Exception("EES frequency not in allowed list")
+
+	speed = filename[:filename.find('cms')].split('_')[-1]
+	if speed not in ("6", "13.5", "15", "21"):
+		raise Exception("Speed not in allowed list")
+
+	step_size = float(filename[:filename.find('step')].split('_')[-1])
+	if step_size not in (0.025, 0.1, 0.25):
+		raise Exception("Step size not in allowed list")
+
+	slice_in_steps = int(25 / step_size)
+	filepath = f"{folder}/{filename}"
+
+	# extract data of extensor
+	if '_E_' in filename:
+		# extract dataset based on slice numbers (except biological data)
+		if 'bio_' in filename:
+			dataset = extract_data(filepath, step_from=step_size, step_to=step_size_to)
+		else:
+			e_begin = 0
+			e_end = e_slices_number[speed] * slice_in_steps
+			# use native funcion for get needful data
+			dataset = extract_data(filepath, e_begin, e_end, step_size, step_size_to)
+	# extract data of flexor
+	elif '_F_' in filename:
+		# preapre flexor data
+		if 'bio_' in filename:
+			dataset = extract_data(filepath, step_from=step_size, step_to=step_size_to)
+		else:
+			f_begin = e_slices_number[speed] * slice_in_steps
+			f_end = f_begin + (7 if '4pedal' in filename else 5) * slice_in_steps
+			# use native funcion for get needful data
+			dataset = extract_data(filepath, f_begin, f_end, step_size, step_size_to)
+	# in another case
+	else:
+<<<<<<< HEAD
+		for i in range(len(thresholds)):
+			necessary_values.append(min_difference[i] + thresholds[i])
+		necessary_indexes = []
+		for slice in range(len(all_mins)):
+			for dot in range(min_difference_indexes[slice], len(all_mins[slice])):
+				if diffs[slice][dot] > necessary_values[slice]:
+					vars.append(diffs[slice][dot])
+					necessary_indexes.append(dot)
+					break
+	return min_difference_indexes, max_difference_indexes, necessary_indexes
+
+
+def absolute_sum(data_list, step):
+	all_bio_slices = []
+	dots_per_slice = 0
+	if step == 0.25:
+		dots_per_slice = 100
+	if step == 0.025:
+		dots_per_slice = 1000
+	# forming list for the plot
+	for k in range(len(data_list)):
+		bio_slices = []
+		offset = 0
+		for i in range(int(len(data_list[k]) / dots_per_slice)):
+			bio_slices_tmp = []
+			for j in range(offset, offset + dots_per_slice):
+				bio_slices_tmp.append(data_list[k][j])
+			bio_slices.append(normalization(bio_slices_tmp, -1, 1))
+			offset += dots_per_slice
+		all_bio_slices.append(bio_slices)  # list [4][16][100]
+	all_bio_slices = list(zip(*all_bio_slices))  # list [16][4][100]
+
+	instant_mean = []
+	for slice in range(len(all_bio_slices)):
+		instant_mean_sum = []
+		for dot in range(len(all_bio_slices[slice][0])):
+			instant_mean_tmp = []
+			for run in range(len(all_bio_slices[slice])):
+				instant_mean_tmp.append(abs(all_bio_slices[slice][run][dot]))
+			instant_mean_sum.append(sum(instant_mean_tmp))
+		instant_mean.append(instant_mean_sum)
+
+	volts = []
+	for i in instant_mean:
+		for j in i:
+			volts.append(j)
+
+	return volts
+
+
+def changing_peaks(data, herz, step, max_amp_coef=-0.3, min_amp_coef=-0.5, filtering=False):
+	# print("data = ", len(data), type(data))
+	ees_end= 36
+	latencies, amplitudes = get_lat_amp(data, herz, step)
+	print("amplitudes = ", amplitudes)
+	proceed_data = []
+	max_times_amp = []
+	max_values_amp = []
+	min_times_amp = []
+	min_values_amp = []
+
+	for i in range(len(data)):
+		data[i] = smooth(data[i], 7)
+		proceed_data.append(sim_process(latencies, data[i], step, ees_end, inhibition_zero=True, after_latencies=True))
+		max_times_amp.append(proceed_data[i][3])
+		max_values_amp.append(proceed_data[i][4])
+		min_times_amp.append(proceed_data[i][5])
+		min_values_amp.append(proceed_data[i][6])
+
+	if filtering:
+		print("latencies = ", latencies)
+		print("amplitudes = ", amplitudes)
+		print("max_times_amp = ", max_times_amp)
+		print("max_values_amp = ", max_values_amp)
+		print("min_times_amp = ", min_times_amp)
+		print("min_values_amp = ", min_values_amp)
+		max_amp_in_sl = []
+		min_amp_in_sl = []
+		max_indexes = []
+
+		for sl in amplitudes:
+			try:
+				max_amp_in_sl.append(max(sl))
+				min_amp_in_sl.append(min(sl))
+				max_indexes.append(sl.index(max(sl)))
+			except ValueError:
+				continue
+
+		max_amp = max(max_amp_in_sl)
+		min_amp = min(min_amp_in_sl)
+
+		threshold_max = max_amp * max_amp_coef
+		threshold_min = min_amp * min_amp_coef
+
+		print("threshold_max = ", threshold_max)
+		corr_ampls_max = []
+		indexes_max = []
+		for index, sl in enumerate(max_values_amp):
+			print("max values amp = ", sl)
+			corr_ampls_max_sl = []
+			indexes_sl = []
+			for ind_dot, dot in enumerate(sl):
+				if dot > threshold_max:
+					corr_ampls_max_sl.append(dot)
+					indexes_sl.append(max_times_amp[index][ind_dot])
+			corr_ampls_max.append(corr_ampls_max_sl)
+			indexes_max.append(indexes_sl)
+
+		corr_ampls_min = []
+		indexes_min = []
+
+		print()
+		print("threshold_min = ", threshold_min)
+
+		for index, sl in enumerate(min_values_amp):
+			print("min values amp = ", sl)
+			corr_ampls_min_sl = []
+			indexes_sl = []
+			for ind_dot, dot in enumerate(sl):
+				if dot < threshold_min:
+					corr_ampls_min_sl.append(dot)
+					indexes_sl.append(min_times_amp[index][ind_dot])
+			corr_ampls_min.append(corr_ampls_min_sl)
+			indexes_min.append(indexes_sl)
+
+		starts_from = []
+		for sl in range(len(indexes_min)):
+			try:
+				if indexes_max[sl][0] < indexes_min[sl][0]:
+					starts_from.append('max')
+				else:
+					starts_from.append('min')
+			except IndexError:
+				if len(indexes_max[sl]) == 0:
+					starts_from.append('min')
+				elif len(indexes_min[sl]) == 0:
+					starts_from.append('max')
+
+		print("starts_from = ", starts_from)
+		print("indexes_max = ", indexes_max)
+		print("indexes_min = ", indexes_min)
+
+		for sl in range(len(indexes_min)):
+			if starts_from[sl] == 'min':
+				to_delete = []
+
+				# print("sl = ", sl)
+				# print("len(indexes_max[{}]) = ".format(sl), len(indexes_max[sl]))
+				# print("len(indexes_min[{}]) = ".format(sl), len(indexes_min[sl]))
+
+				if len(indexes_max[sl]) > 0 and len(indexes_min[sl]) > 0:
+					for i in range(min((len(indexes_min[sl])), len(indexes_max[sl]))):
+						if indexes_max[sl][i] - indexes_min[sl][i] == 1:
+							to_delete.append(i)
+
+				print("sl = ", sl)
+				print("to_delete = ", to_delete)
+				for i in to_delete:
+					del indexes_min[sl][i]
+					del corr_ampls_min[sl][i]
+					print("deleted indexes_max[{}][{}]".format(sl, i))
+
+				if len(indexes_min[sl]) == 1 and len(indexes_max[sl]) > 1:
+					del indexes_max[sl][1:]
+					del corr_ampls_max[sl][1:]
+				if len(indexes_max[sl]) == 1 and len(indexes_min[sl]) > 1:
+					del indexes_min[sl][1:]
+					del corr_ampls_min[sl][1:]
+
+				for i in range(len(indexes_min[sl])):
+					try:
+						if indexes_min[sl][i] > indexes_max[sl][i]:
+							del indexes_max[sl][i]
+							del corr_ampls_max[sl][i]
+					except IndexError:
+						continue
+
+				print("indexes_max = ", indexes_max)
+				print("indexes_min = ", indexes_min)
+
+				to_delete_sl = []
+				to_delete_dot = []
+				if len(indexes_min[sl]) > 1:
+					for i in range(min((len(indexes_min[sl]) - 1), len(indexes_max[sl]))):
+						# print("indexes_min[{}][{}] = ".format(sl, i + 1), indexes_min[sl][i + 1])
+						# print("indexes_max[{}][{}] = ".format(sl, i), indexes_max[sl][i])
+						# print()
+						if indexes_min[sl][i + 1] < indexes_max[sl][i]:
+							# print("del indexes_min[{}][{}] = ".format(sl, i + 1), indexes_min[sl][i + 1])
+							to_delete_sl.append(sl)
+							to_delete_dot.append(i + 1)
+
+				print("to_delete sl= ", to_delete_sl)
+				print("to_delete_dot = ", to_delete_dot)
+				for i in range(len(to_delete_sl)- 1, -1, -1):
+					del indexes_min[to_delete_sl[i]][to_delete_dot[i]]
+					del corr_ampls_min[to_delete_sl[i]][to_delete_dot[i]]
+
+				if len(indexes_max[sl]) > len(indexes_min[sl]) and len(indexes_min[sl]) > 0:
+					del indexes_max[sl][len(indexes_min[sl]):]
+					del corr_ampls_max[sl][len(indexes_min[sl]):]
+				else:
+					if len(indexes_max[sl]) > len(indexes_min[sl]) and len(indexes_min[sl]) == 0:
+						del indexes_max[sl][1:]
+						del corr_ampls_max[sl][1:]
+
+				if len(indexes_min[sl]) > len(indexes_max[sl]) and len(indexes_max[sl]) > 0 \
+						and indexes_min[sl][-1] < indexes_max[sl][-1]:
+					del indexes_min[sl][-1]
+					del corr_ampls_min[sl][-1]
+
+			print()
+			print("indexes_max = ", indexes_max)
+			print("indexes_min = ", indexes_min)
+		for sl in range(len(indexes_max)):
+			if starts_from[sl] == 'max':
+				if len(indexes_min[sl]) == 0:
+					del indexes_max[sl][1:]
+					del corr_ampls_max[sl][1:]
+				to_delete = []
+				for i in range(len(indexes_min[sl])):
+					# print("indexes_min[{}][{}] = ".format(sl, i), indexes_min[sl][i])
+					# print("indexes_max[{}][{}] = ".format(sl, i), indexes_max[sl][i])
+					if indexes_min[sl][i] - indexes_max[sl][i] == 1:
+						to_delete.append(i)
+
+				for i in to_delete:
+					del indexes_min[sl][i]
+					del corr_ampls_min[sl][i]
+				if len(indexes_min[sl]) == 1 and len(indexes_max[sl]) > 1:
+					del indexes_max[sl][1:]
+					del corr_ampls_max[sl][1:]
+
+				print()
+				print("indexes_max = ", indexes_max)
+				print("indexes_min  ", indexes_min)
+
+				to_delete_sl = []
+				to_delete_dot = []
+
+				if len(indexes_max[sl]) > 1:
+					for i in range(min((len(indexes_min[sl])), len(indexes_max[sl]))):
+						# print("indexes_max[{}][{}] = ".format(sl, i + 1), indexes_max[sl][i + 1])
+						# print("indexes_min[{}][{}] = ".format(sl, i), indexes_min[sl][i])
+						# print()
+						if indexes_max[sl][i + 1] < indexes_min[sl][i]:
+							# print(" del indexes_max[{}][{}] = ".format(sl, i + 1), indexes_max[sl][i + 1])
+							to_delete_sl.append(sl)
+							to_delete_dot.append(i + 1)
+
+				for i in range(len(to_delete_sl)- 1, -1, -1):
+					del indexes_max[to_delete_sl[i]][to_delete_dot[i]]
+					del corr_ampls_max[to_delete_sl[i]][to_delete_dot[i]]
+
+				print()
+				print("indexes_max = ", indexes_max)
+				print("indexes_min  ", indexes_min)
+				print()
+				if len(indexes_max[sl]) > len(indexes_min[sl]) and len(indexes_min[sl]) > 0 \
+						and indexes_max[sl][-1] < indexes_min[sl][-1]:
+					del indexes_max[sl][-1]
+					del corr_ampls_max[sl][-1]
+
+				print("ya")
+				print("indexes_max = ", indexes_max)
+				print("indexes_min  ", indexes_min)
+				print()
+
+				if len(indexes_max[sl]) > len(indexes_min[sl]) + 1 and len(indexes_min[sl]) > 0:
+					del indexes_max[sl][len(indexes_min[sl]) + 1:]
+					del corr_ampls_max[sl][len(indexes_min[sl]) + 1:]
+
+				print("sl = ", sl)
+				print("here")
+				print("indexes_max = ", indexes_max)
+				print("indexes_min  ", indexes_min)
+
+	indexes_min = list(map(list, zip(*min_times_amp)))
+	indexes_max = list(map(list, zip(*max_times_amp)))
+
+	for j in range(len(indexes_min)):
+		for d in range(len(indexes_min[j])):
+			indexes_min[j][d] = [i * bio_step for i in indexes_min[j][d]]
+
+	for j in range(len(indexes_max)):
+		for d in range(len(indexes_max[j])):
+			indexes_max[j][d] = [i * bio_step for i in indexes_max[j][d]]
+
+	max_peaks = []
+	for run in indexes_max:
+		max_peaks_tmp = []
+		for ind in run:
+			max_peaks_tmp.append(len(ind))
+		max_peaks.append(max_peaks_tmp)
+
+	min_peaks = []
+	for run in indexes_min:
+		min_peaks_tmp = []
+		for ind in run:
+			min_peaks_tmp.append(len(ind))
+		min_peaks.append(min_peaks_tmp)
+=======
+		raise Exception("Couldn't parse filename and extract muscle name")
+>>>>>>> origin/master
+
+	# centering and normalizing data
+	prepared_data = prepare_data(dataset)
+
+	return prepared_data, ees_hz, step_size
